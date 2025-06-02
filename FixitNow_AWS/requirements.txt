@@ -1,0 +1,11 @@
+Flask
+Werkzeug
+boto3
+botocore
+python-dotenv
+gunicorn
+Jinja2
+MarkupSafe
+itsdangerous
+click
+blinker

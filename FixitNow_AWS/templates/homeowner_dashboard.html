@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixItNow - Homeowners Dashboard</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/homeowner_dashboard.css') }}">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('home') }}">
+                <i class="fas fa-tools me-2"></i>FixItNow
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('home') }}"><i class="fas fa-home me-1"></i>Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link">
+                            <i class="fas fa-user me-1"></i> {{ current_user.username }}
+                        </a>
+                    </li> 
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('logout') }}">
+                            <i class="fas fa-sign-out-alt me-1"></i>Logout
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container main-content">
+        <!-- Flash Messages -->
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <!-- Welcome Section -->
+        <div class="welcome-section">
+            <h2><i class="fas fa-hand-wave me-2"></i>Welcome back, {{ current_user.username }}!</h2>
+            <p class="mb-0">Manage your home maintenance needs with ease</p>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="row mb-4">
+            <div class="col-md-3 mb-3">
+                <div class="stat-card">
+                    <div class="stat-number">{{ stats.total_requests if stats else 0 }}</div>
+                    <div class="text-muted">Total Requests</div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="stat-card">
+                    <div class="stat-number">{{ stats.in_progress if stats else 0 }}</div>
+                    <div class="text-muted">In Progress</div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="stat-card">
+                    <div class="stat-number">{{ stats.completed if stats else 0 }}</div>
+                    <div class="text-muted">Completed</div>
+                </div>
+            </div>
+            <div class="col-md-3 mb-3">
+                <div class="stat-card">
+                    <div class="stat-number">{{ stats.scheduled if stats else 0 }}</div>
+                    <div class="text-muted">Scheduled</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row equal-height-row">
+            <!-- Request Service Section -->
+            <div class="col-lg-6">
+                <div class="dashboard-card full-height-card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-plus-circle me-2"></i>Request New Service</h5>
+                    </div>
+                    <div class="card-body p-4 scrollable-content">
+                        <form id="serviceRequestForm">
+                            <div class="mb-3">
+                                <label for="serviceType" class="form-label">Service Type</label>
+                                <select class="form-select" name="serviceType" id="serviceType" required>
+                                    <option value="">Select a service...</option>
+                                    <option value="plumbing">Plumbing</option>
+                                    <option value="electrical">Electrical</option>
+                                    <option value="hvac">HVAC</option>
+                                    <option value="carpentry">Carpentry</option>
+                                    <option value="painting">Painting</option>
+                                    <option value="appliance">Appliance Repair</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="priority" class="form-label">Priority</label>
+                                <select class="form-select" name="priority" id="priority" required>
+                                    <option value="">Select priority...</option>
+                                    <option value="low">Low</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="high">High</option>
+                                    <option value="emergency">Emergency</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Description</label>
+                                <textarea class="form-control" name="description" id="description" rows="3" placeholder="Describe the issue in detail..." required></textarea>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="preferredDate" class="form-label">Preferred Date</label>
+                                    <input type="date" class="form-control" name="preferredDate" id="preferredDate">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="preferredTime" class="form-label">Preferred Time</label>
+                                    <input type="time" class="form-control" name="preferredTime" id="preferredTime">
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-paper-plane me-2"></i>Submit Request
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Requests -->
+            <div class="col-lg-6">
+                <div class="dashboard-card full-height-card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-clock me-2"></i>Active Requests</h5>
+                    </div>
+                    <div class="card-body p-4">
+                        <div id="activeRequestsContainer" class="scrollable-content" style="max-height: 400px; overflow-y: auto;">
+                            <!-- Dynamic content will be loaded here by JavaScript -->
+                            <div class="text-center text-muted py-4">
+                                <i class="fas fa-spinner fa-spin fa-2x mb-2"></i>
+                                <p>Loading active requests...</p>
+                            </div>
+                        </div>
+                        <div class="text-center mt-3">
+                            <button class="btn btn-outline-primary" data-action="view-all">
+                                <i class="fas fa-list me-2"></i>View All Requests
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Maintenance Records -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="dashboard-card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-history me-2"></i>Recent Maintenance Records</h5>
+                        <button class="btn btn-outline-light btn-sm" data-action="export">
+                            <i class="fas fa-download me-1"></i>Export Records
+                        </button>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="table-responsive scrollable-table" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-hover">
+                                <thead class="table-light sticky-header">
+                                    <tr>
+                                        <th>Service</th>
+                                        <th>Provider</th>
+                                        <th>Date</th>
+                                        <th>Cost</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <!-- Dynamic content will be loaded here by JavaScript -->
+                                    <tr>
+                                        <td colspan="6" class="text-center text-muted py-4">
+                                            <i class="fas fa-spinner fa-spin me-2"></i>Loading maintenance records...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer Section -->
+    <footer id="contact" class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-4 mb-4">
+                    <h5>FixItNow</h5>
+                    <p>Your trusted partner for all home repair and maintenance needs. Professional, reliable, and efficient service delivery.</p>
+                    <div class="social-links">
+                        <a href="#"><i class="fab fa-facebook-f"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-linkedin-in"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                    </div>
+                </div>
+                <div class="col-lg-2 mb-4">
+                    <h5>Services</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#">Plumbing</a></li>
+                        <li><a href="#">Electrical</a></li>
+                        <li><a href="#">HVAC</a></li>
+                        <li><a href="#">Carpentry</a></li>
+                        <li><a href="#">Painting</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-2 mb-4">
+                    <h5>Support</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#">Help Center</a></li>
+                        <li><a href="#">Contact Us</a></li>
+                        <li><a href="#">FAQ</a></li>
+                        <li><a href="#">Privacy Policy</a></li>
+                        <li><a href="#">Terms of Service</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-4 mb-4">
+                    <h5>Contact Info</h5>
+                    <p><i class="fas fa-map-marker-alt me-2"></i>Gachibowli, Hyderabad, Telangana </p>
+                    <p><i class="fas fa-phone me-2"></i>+91 XXXXX XXXXX</p>
+                    <p><i class="fas fa-envelope me-2"></i>smartbridge@fixitnow.com</p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 FixItNow. All rights reserved. | Powered by AWS Cloud Services</p>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/homeowner_dashboard.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixItNow - Sign Up</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/signup.css') }}">
+    
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <i class="fas fa-tools"></i>
+                </div>
+                <h1 class="brand-name">FixItNow</h1>
+                <p class="brand-tagline">Professional Home Repair Services</p>
+            </div>
+
+            <div class="auth-form">
+                <h2 class="text-center mb-4" style="font-weight: 600; color: var(--text-dark);">Join FixItNow</h2>
+                
+                <form id="signupForm">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="username" placeholder="Choose a username" required>
+                        <div id="usernameError" class="text-danger mt-1" style="font-size: 0.875rem; display: none;"></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" placeholder="Create a strong password" required>
+                        <div id="passwordStrength" class="password-strength"></div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="confirmPassword" class="form-label">Confirm Password</label>
+                        <input type="password" class="form-control" id="confirmPassword" placeholder="Confirm your password" required>
+                        <div id="passwordMatch" class="mt-1" style="font-size: 0.875rem;"></div>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label class="form-label">I am a:</label>
+                        <div class="user-type-cards">
+                            <div class="user-type-card" data-type="homeowner">
+                                <i class="fas fa-home"></i>
+                                <p class="card-title">Homeowner</p>
+                            </div>
+                            <div class="user-type-card" data-type="provider">
+                                <i class="fas fa-wrench"></i>
+                                <p class="card-title">Service Provider</p>
+                            </div>
+                        </div>
+                        <input type="hidden" id="userType" required>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary w-100 mb-3" id="submitBtn">
+                        <i class="fas fa-user-plus me-2"></i>Create Account
+                    </button>
+                </form>
+                
+                <div class="text-center">
+                    <p class="mb-0" style="color: var(--medium-gray);">
+                        Already have an account? 
+                        <a href="{{ url_for('signin') }}" class="toggle-link">Sign in here</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+
+    <script src="{{ url_for('static', filename='js/signup.js') }}"></script>
+</body>
+</html>

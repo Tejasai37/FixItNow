@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixItNow - On-Demand Home Repair & Maintenance</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/home.css') }}">
+</head>
+<body>
+    <!-- Navbar Section -->
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('home') }}">
+                <i class="fas fa-tools me-2"></i>FixItNow
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav mx-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="#home">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#features">Features</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#dashboard">Dashboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#about">About</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#contact">Contact</a>
+                    </li>
+                </ul>
+                <div class="d-flex">
+                    {% if current_user %}
+                        <div class="dropdown me-2">
+                            <button class="btn btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                <i class="fas fa-user me-1"></i>{{ current_user.username }}
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="{% if current_user.user_type == 'homeowner' %}{{ url_for('homeowner_dashboard') }}{% else %}{{ url_for('service_provider_dashboard') }}{% endif %}">
+                                    <i class="fas fa-tachometer-alt me-2"></i>Dashboard
+                                </a></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><a class="dropdown-item" href="{{ url_for('logout') }}">
+                                    <i class="fas fa-sign-out-alt me-2"></i>Logout
+                                </a></li>
+                            </ul>
+                        </div>
+                    {% else %}
+                        <a href="{{ url_for('signup') }}" class="btn btn-outline-primary me-2">Sign Up / Sign In</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section id="home" class="hero-section">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col-lg-6 hero-content">
+                    <h1 class="hero-title">Your Home Repair Solution</h1>
+                    <p class="hero-subtitle">Connect with trusted service providers for all your home maintenance needs. Fast, reliable, and professional service at your fingertips.</p>
+                    <div class="hero-buttons">
+                        <a href="#features" class="btn btn-light-custom">Get Started</a>
+                        <a href="#about" class="btn btn-outline-light-custom">Learn More</a>
+                    </div>
+                </div>
+                <div class="col-lg-6 text-center">
+                    <div style="font-size: 15rem; opacity: 0.1;">
+                        <i class="fas fa-home"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features-section">
+        <div class="container">
+            <h2 class="section-title">Choose Your Role</h2>
+            <p class="section-subtitle">Whether you're a homeowner seeking services or a professional service provider, we've got you covered</p>
+            
+            <div class="row g-4">
+                <div class="col-lg-6">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-home"></i>
+                        </div>
+                        <h3 class="feature-title">For Homeowners</h3>
+                        <p class="feature-description">
+                            Submit service requests, schedule maintenance appointments, track service provider arrival, and leave feedback. Keep digital records of all your home maintenance activities.
+                        </p>
+                        <ul class="list-unstyled text-start mb-3">
+                            <li><i class="fas fa-check text-success me-2"></i>Submit instant service requests</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Schedule maintenance appointments</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Real-time service tracking</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Digital maintenance records</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Rate and review services</li>
+                        </ul>
+                        <button class="btn feature-btn" onclick="navigateToDashboard('homeowner')">
+                            Access Homeowner Dashboard
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="col-lg-6">
+                    <div class="feature-card">
+                        <div class="feature-icon">
+                            <i class="fas fa-tools"></i>
+                        </div>
+                        <h3 class="feature-title">For Service Providers</h3>
+                        <p class="feature-description">
+                            Receive job notifications, manage your availability, accept or decline requests, update job status, and maintain your service calendar efficiently.
+                        </p>
+                        <ul class="list-unstyled text-start mb-3">
+                            <li><i class="fas fa-check text-success me-2"></i>Instant job notifications</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Manage availability calendar</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Accept/decline requests</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Update job status in real-time</li>
+                            <li><i class="fas fa-check text-success me-2"></i>Build customer relationships</li>
+                        </ul>
+                        <button class="btn feature-btn" onclick="navigateToDashboard('service_provider')">
+                            Access Provider Dashboard
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="about-section">
+        <div class="container">
+            <div class="about-content">
+                <h2 class="section-title">About FixItNow</h2>
+                <p class="about-text">
+                    FixItNow is a revolutionary cloud-based platform designed to bridge the gap between homeowners and qualified service providers. In today's fast-paced world, finding reliable and timely maintenance services can be challenging. Our platform transforms the traditional home repair experience by providing a seamless booking system that facilitates immediate service requests, scheduled maintenance appointments, and transparent service tracking.
+                </p>
+                <p class="about-text">
+                    Built on a robust AWS infrastructure, FixItNow ensures security, scalability, and real-time communications. Our mission is to make home maintenance effortless while optimizing operations for service providers, creating a win-win ecosystem for all users.
+                </p>
+                
+                <h4 class="mt-5 mb-4">Powered by AWS Technology</h4>
+                <div class="tech-stack">
+                    <div class="tech-item">
+                        <div class="tech-icon">
+                            <i class="fab fa-aws"></i>
+                        </div>
+                        <span>Amazon EC2</span>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-icon">
+                            <i class="fas fa-database"></i>
+                        </div>
+                        <span>DynamoDB</span>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-icon">
+                            <i class="fas fa-shield-alt"></i>
+                        </div>
+                        <span>AWS IAM</span>
+                    </div>
+                    <div class="tech-item">
+                        <div class="tech-icon">
+                            <i class="fas fa-bell"></i>
+                        </div>
+                        <span>Amazon SNS</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer Section -->
+    <footer id="contact" class="footer">
+        <div class="container">
+            <div class="row">
+                <div class="col-lg-4 mb-4">
+                    <h5>FixItNow</h5>
+                    <p>Your trusted partner for all home repair and maintenance needs. Professional, reliable, and efficient service delivery.</p>
+                    <div class="social-links">
+                        <a href="#"><i class="fab fa-facebook-f"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-linkedin-in"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                    </div>
+                </div>
+                <div class="col-lg-2 mb-4">
+                    <h5>Services</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#">Plumbing</a></li>
+                        <li><a href="#">Electrical</a></li>
+                        <li><a href="#">HVAC</a></li>
+                        <li><a href="#">Carpentry</a></li>
+                        <li><a href="#">Painting</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-2 mb-4">
+                    <h5>Support</h5>
+                    <ul class="list-unstyled">
+                        <li><a href="#">Help Center</a></li>
+                        <li><a href="#">Contact Us</a></li>
+                        <li><a href="#">FAQ</a></li>
+                        <li><a href="#">Privacy Policy</a></li>
+                        <li><a href="#">Terms of Service</a></li>
+                    </ul>
+                </div>
+                <div class="col-lg-4 mb-4">
+                    <h5>Contact Info</h5>
+                    <p><i class="fas fa-map-marker-alt me-2"></i>Gachibowli, Hyderabad, Telangana </p>
+                    <p><i class="fas fa-phone me-2"></i>+91 XXXXX XXXXX</p>
+                    <p><i class="fas fa-envelope me-2"></i>smartbridge@fixitnow.com</p>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 FixItNow. All rights reserved. | Powered by AWS Cloud Services</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/home.js') }}"></script>
+</body>
+</html>
