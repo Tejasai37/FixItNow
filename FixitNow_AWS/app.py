@@ -540,16 +540,257 @@ def api_create_service_request():
         'message': 'Service request created successfully'
     })
 
-# Health check endpoint
-@app.route('/health')
-def health_check():
+@app.route('/api/update-service-status', methods=['POST'])
+def api_update_service_status():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    data = request.get_json()
+    service_id = data.get('service_id')
+    new_status = data.get('status')
+    
+    if not service_id or not new_status:
+        return jsonify({'error': 'service_id and status are required'}), 400
+    
+    if service_id not in services_db:
+        return jsonify({'error': 'Service not found'}), 404
+    
+    service = services_db[service_id]
+    user = get_current_user()
+    
+    if new_status == 'scheduled' and service['status'] == 'pending':
+        if user['user_type'] != 'service_provider':
+            return jsonify({'error': 'Only service providers can accept requests'}), 403
+        
+        services_db[service_id]['service_provider'] = user['username']
+    
+    elif user['user_type'] == 'homeowner' and service['homeowner'] != user['username']:
+        return jsonify({'error': 'Permission denied'}), 403
+    elif user['user_type'] == 'service_provider' and service['service_provider'] != user['username']:
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    update_fields = {}
+    if data.get('cost'):
+        try:
+            update_fields['cost'] = float(data['cost'])
+        except ValueError:
+            return jsonify({'error': 'Invalid cost value'}), 400
+    
+    if data.get('rating'):
+        try:
+            rating = int(data['rating'])
+            if 1 <= rating <= 5:
+                update_fields['rating'] = rating
+            else:
+                return jsonify({'error': 'Rating must be between 1 and 5'}), 400
+        except ValueError:
+            return jsonify({'error': 'Invalid rating value'}), 400
+    
+    if data.get('start_date'):
+        try:
+            update_fields['start_date'] = datetime.strptime(data['start_date'], '%Y-%m-%d %H:%M')
+        except ValueError:
+            return jsonify({'error': 'Invalid start_date format. Use YYYY-MM-DD HH:MM'}), 400
+    
+    if new_status == 'completed' and service.get('start_date'):
+        if isinstance(service['start_date'], datetime):
+            duration = datetime.now() - service['start_date']
+            update_fields['duration'] = duration.total_seconds() / 3600
+    
+    success = update_service_status(service_id, new_status, **update_fields)
+    
+    if success:
+        return jsonify({'success': True, 'message': 'Service updated successfully'})
+    else:
+        return jsonify({'error': 'Failed to update service'}), 500
+
+@app.route('/api/assign-service-provider', methods=['POST'])
+def api_assign_service_provider():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    user = get_current_user()
+    if user['user_type'] != 'service_provider':
+        return jsonify({'error': 'Only service providers can accept requests'}), 403
+    
+    data = request.get_json()
+    service_id = data.get('service_id')
+    
+    if not service_id:
+        return jsonify({'error': 'service_id is required'}), 400
+    
+    if service_id not in services_db:
+        return jsonify({'error': 'Service not found'}), 404
+    
+    service = services_db[service_id]
+    if service['status'] != 'pending':
+        return jsonify({'error': 'Service is not available for assignment'}), 400
+    
+    services_db[service_id]['service_provider'] = user['username']
+    services_db[service_id]['status'] = 'scheduled'
+    services_db[service_id]['updated_at'] = datetime.now()
+    
     return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'aws_services': {
-            'dynamodb': users_table is not None and services_table is not None,
-            'sns': sns_client is not None
+        'success': True,
+        'message': 'Service request accepted and scheduled'
+    })
+
+@app.route('/api/complete-service', methods=['POST'])
+def api_complete_service():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    user = get_current_user()
+    if user['user_type'] != 'service_provider':
+        return jsonify({'error': 'Only service providers can complete services'}), 403
+    
+    data = request.get_json()
+    service_id = data.get('service_id')
+    cost = data.get('cost')
+    notes = data.get('notes', '')
+    
+    if not service_id:
+        return jsonify({'error': 'service_id is required'}), 400
+    
+    if service_id not in services_db:
+        return jsonify({'error': 'Service not found'}), 404
+    
+    service = services_db[service_id]
+    
+    if service['service_provider'] != user['username']:
+        return jsonify({'error': 'Permission denied'}), 403
+    
+    if service['status'] != 'in_progress':
+        return jsonify({'error': 'Service must be in progress to complete'}), 400
+    
+    update_fields = {
+        'status': 'completed',
+        'updated_at': datetime.now()
+    }
+    
+    if cost:
+        try:
+            update_fields['cost'] = float(cost)
+        except ValueError:
+            return jsonify({'error': 'Invalid cost value'}), 400
+    
+    if notes:
+        update_fields['completion_notes'] = notes
+    
+    if service.get('start_date') and isinstance(service['start_date'], datetime):
+        duration = datetime.now() - service['start_date']
+        update_fields['duration'] = duration.total_seconds() / 3600
+    
+    for key, value in update_fields.items():
+        services_db[service_id][key] = value
+    
+    return jsonify({
+        'success': True,
+        'message': 'Service completed successfully',
+        'service': {
+            'service_id': service_id,
+            'cost': update_fields.get('cost'),
+            'duration': update_fields.get('duration')
         }
+    })
+
+# API routes - Data retrieval
+@app.route('/api/get-services')
+def api_get_services():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    user = get_current_user()
+    services = get_user_services(user['username'], user['user_type'])
+    
+    services_json = []
+    for service in services:
+        service_copy = service.copy()
+        for key, value in service_copy.items():
+            if isinstance(value, datetime):
+                service_copy[key] = value.isoformat()
+        services_json.append(service_copy)
+    
+    return jsonify({'services': services_json})
+
+@app.route('/api/available-requests')
+def api_available_requests():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    user = get_current_user()
+    if user['user_type'] != 'service_provider':
+        return jsonify({'error': 'Only service providers can access this endpoint'}), 403
+    
+    available_requests = []
+    for service in services_db.values():
+        if service['status'] == 'pending' and service['service_provider'] is None:
+            service_copy = service.copy()
+            for key, value in service_copy.items():
+                if isinstance(value, datetime):
+                    service_copy[key] = value.isoformat()
+            available_requests.append(service_copy)
+    
+    return jsonify({'requests': available_requests})
+
+@app.route('/api/current-user')
+def api_current_user():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    user = get_current_user()
+    if user:
+        return jsonify({
+            'username': user['username'],
+            'user_type': user['user_type'],
+            'created_at': user['created_at'].isoformat() if isinstance(user['created_at'], datetime) else str(user['created_at'])
+        })
+    else:
+        return jsonify({'error': 'User not found'}), 404
+
+@app.route('/api/provider-profile', methods=['GET', 'POST'])
+def api_provider_profile():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    user = get_current_user()
+    if user['user_type'] != 'service_provider':
+        return jsonify({'error': 'Only service providers can access this endpoint'}), 403
+    
+    if request.method == 'GET':
+        profile = {
+            'username': user['username'],
+            'user_type': user['user_type'],
+            'created_at': user['created_at'].isoformat() if isinstance(user['created_at'], datetime) else str(user['created_at']),
+            'availability': True,
+            'service_types': ['plumbing', 'electrical', 'hvac'],
+            'hourly_rate': 75.00
+        }
+        return jsonify(profile)
+    
+    elif request.method == 'POST':
+        data = request.get_json()
+        return jsonify({'success': True, 'message': 'Profile updated successfully'})
+
+@app.route('/api/check-username', methods=['POST'])
+def check_username():
+    username = request.json.get('username', '').strip()
+    exists = username in users_db
+    return jsonify({'exists': exists})
+
+@app.route('/api/user-stats')
+def user_stats():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    total_users = len(users_db)
+    homeowners = sum(1 for user in users_db.values() if user['user_type'] == 'homeowner')
+    service_providers = sum(1 for user in users_db.values() if user['user_type'] == 'service_provider')
+    
+    return jsonify({
+        'total_users': total_users,
+        'homeowners': homeowners,
+        'service_providers': service_providers
     })
 
 # Template filters (same as original)
@@ -598,4 +839,5 @@ if __name__ == '__main__':
     
     
     print("FixItNow Flask App Starting...")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    
+    app.run(debug=True, host='0.0.0.0', port=500)
