@@ -598,10 +598,4 @@ if __name__ == '__main__':
     
     
     print("FixItNow Flask App Starting...")
-    print(f"Port: {port}")
-    print(f"Debug: {debug}")
-    print(f"AWS Region: {AWS_REGION}")
-    print(f"Users Table: {USERS_TABLE}")
-    print(f"Services Table: {SERVICES_TABLE}")
-    
     app.run(debug=True, host='0.0.0.0', port=5000)
