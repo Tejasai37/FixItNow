@@ -790,15 +790,31 @@ def user_stats():
     if not is_signed_in():
         return jsonify({'error': 'Not signed in'}), 401
     
-    total_users = len(users_db)
-    homeowners = sum(1 for user in users_db.values() if user['user_type'] == 'homeowner')
-    service_providers = sum(1 for user in users_db.values() if user['user_type'] == 'service_provider')
+    # Get all users from database (DynamoDB or fallback)
+    all_users = get_all_users_from_db()
+    
+    total_users = len(all_users)
+    homeowners = sum(1 for user in all_users if user.get('user_type') == 'homeowner')
+    service_providers = sum(1 for user in all_users if user.get('user_type') == 'service_provider')
     
     return jsonify({
         'total_users': total_users,
         'homeowners': homeowners,
         'service_providers': service_providers
     })
+
+# Helper function to get all users (add this function as well)
+def get_all_users_from_db():
+    """Get all users from DynamoDB or fallback storage"""
+    if users_table:
+        try:
+            response = users_table.scan()
+            return response.get('Items', [])
+        except ClientError as e:
+            logger.error(f"Error getting all users from DynamoDB: {e}")
+            return list(users_db.values())
+    else:
+        return list(users_db.values())
 
 
 # Template filters
