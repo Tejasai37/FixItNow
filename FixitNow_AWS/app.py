@@ -785,6 +785,22 @@ def check_username():
     exists = user is not None
     return jsonify({'exists': exists})
 
+@app.route('/api/user-stats')
+def user_stats():
+    if not is_signed_in():
+        return jsonify({'error': 'Not signed in'}), 401
+    
+    total_users = len(users_db)
+    homeowners = sum(1 for user in users_db.values() if user['user_type'] == 'homeowner')
+    service_providers = sum(1 for user in users_db.values() if user['user_type'] == 'service_provider')
+    
+    return jsonify({
+        'total_users': total_users,
+        'homeowners': homeowners,
+        'service_providers': service_providers
+    })
+
+
 # Template filters
 @app.template_filter('datetime')
 def datetime_filter(value):
