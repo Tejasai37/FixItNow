@@ -39,6 +39,13 @@ except Exception as e:
     logger.error(f"Failed to initialize AWS services: {e}")
     raise
 
+# Helper function to convert float to Decimal for DynamoDB
+def float_to_decimal(value):
+    """Convert float to Decimal for DynamoDB compatibility"""
+    if isinstance(value, float):
+        return Decimal(str(value))
+    return value
+
 # Helper function to convert datetime to string for DynamoDB
 def serialize_datetime(obj):
     if isinstance(obj, datetime):
@@ -192,6 +199,9 @@ def update_service_status(service_id, status, **kwargs):
                 update_expression += f", {key} = {placeholder}"
                 if isinstance(value, datetime):
                     expression_values[placeholder] = value.isoformat()
+                elif isinstance(value, float):
+                    # Convert float to Decimal for DynamoDB
+                    expression_values[placeholder] = Decimal(str(value))
                 else:
                     expression_values[placeholder] = value
         
@@ -660,6 +670,7 @@ def api_complete_service():
     
     if cost:
         try:
+            # Convert to float first, then it will be converted to Decimal in update_service_status
             update_fields['cost'] = float(cost)
         except ValueError:
             return jsonify({'error': 'Invalid cost value'}), 400
@@ -786,7 +797,7 @@ def currency_filter(value):
         return f"${float(value):.2f}"
     except (ValueError, TypeError):
         return '-'
-
+    
 @app.template_filter('duration')
 def duration_filter(value):
     if value is None:
