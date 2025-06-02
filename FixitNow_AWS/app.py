@@ -596,8 +596,6 @@ if __name__ == '__main__':
     # Initialize sample data for development
     initialize_sample_data()
     
-    port = int(os.getenv('PORT', 5000))
-    debug = os.getenv('FLASK_ENV') == 'development'
     
     print("FixItNow Flask App Starting...")
     print(f"Port: {port}")
@@ -606,4 +604,4 @@ if __name__ == '__main__':
     print(f"Users Table: {USERS_TABLE}")
     print(f"Services Table: {SERVICES_TABLE}")
     
-    app.run(debug=debug, host='0.0.0.0', port=port)
+    app.run(debug=True, host='0.0.0.0', port=5000)
