@@ -196,7 +196,16 @@ def update_service_status(service_id, status, **kwargs):
         for key, value in kwargs.items():
             if value is not None:
                 placeholder = f":{key}"
-                update_expression += f", {key} = {placeholder}"
+                
+                # Handle reserved keywords by adding them to ExpressionAttributeNames
+                if key in ['duration', 'status', 'count', 'size', 'timestamp', 'type']:
+                    # Use a placeholder for the attribute name
+                    attr_name = f"#{key}"
+                    expression_names[attr_name] = key
+                    update_expression += f", {attr_name} = {placeholder}"
+                else:
+                    update_expression += f", {key} = {placeholder}"
+                
                 if isinstance(value, datetime):
                     expression_values[placeholder] = value.isoformat()
                 elif isinstance(value, float):
