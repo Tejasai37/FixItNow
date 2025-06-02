@@ -5,8 +5,9 @@ from datetime import datetime
 import uuid
 import boto3
 from botocore.exceptions import ClientError
-from dotenv import load_dotenv
+import json
 import logging
+from decimal import Decimal
 
 # Load environment variables
 load_dotenv()
@@ -19,242 +20,279 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # AWS Configuration
-AWS_REGION = os.getenv('AWS_REGION', 'us-east-1')
-USERS_TABLE = os.getenv('USERS_TABLE', 'fixitnow_user')
-SERVICES_TABLE = os.getenv('SERVICES_TABLE', 'fixitnow_service')
+AWS_REGION = 'us-east-1'
+USERS_TABLE = 'fixitnow_user'
+SERVICES_TABLE = 'fixitnow_service'
 SNS_TOPIC_ARN = os.getenv('SNS_TOPIC_ARN')
 
 # Initialize AWS clients
 try:
     dynamodb = boto3.resource('dynamodb', region_name=AWS_REGION)
+    sns_client = boto3.client('sns', region_name=AWS_REGION)
+    
     users_table = dynamodb.Table(USERS_TABLE)
     services_table = dynamodb.Table(SERVICES_TABLE)
-    sns_client = boto3.client('sns', region_name=AWS_REGION)
+    
     logger.info("AWS services initialized successfully")
 except Exception as e:
     logger.error(f"Failed to initialize AWS services: {e}")
-    # Fallback to in-memory storage for development
-    users_table = None
-    services_table = None
-    sns_client = None
+    raise
 
-# In-memory fallback databases
-users_db = {}
-services_db = {}
+# Helper function to convert datetime to string for DynamoDB
+def serialize_datetime(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    elif isinstance(obj, Decimal):
+        return float(obj)
+    return obj
+
+# Helper function to convert DynamoDB response to regular dict
+def deserialize_item(item):
+    if not item:
+        return None
+    
+    result = {}
+    for key, value in item.items():
+        if isinstance(value, str) and 'T' in value:
+            try:
+                result[key] = datetime.fromisoformat(value)
+            except ValueError:
+                result[key] = value
+        elif isinstance(value, Decimal):
+            result[key] = float(value)
+        else:
+            result[key] = value
+    return result
+
+# SNS notification helper
+def send_notification(message, subject="FixItNow Notification"):
+    try:
+        response = sns_client.publish(
+            TopicArn=SNS_TOPIC_ARN,
+            Message=message,
+            Subject=subject
+        )
+        logger.info(f"SNS notification sent: {response['MessageId']}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send SNS notification: {e}")
+        return False
 
 # Database helper functions
-def create_user_in_db(username, password_hash, user_type):
-    """Create user in DynamoDB or fallback storage"""
-    user_data = {
-        'username': username,
-        'password': password_hash,
-        'user_type': user_type,
-        'created_at': datetime.now().isoformat()
-    }
-    
-    if users_table:
-        try:
-            users_table.put_item(Item=user_data)
-            logger.info(f"User {username} created in DynamoDB")
-            return True
-        except ClientError as e:
-            logger.error(f"Error creating user in DynamoDB: {e}")
-            # Fallback to in-memory
-            users_db[username] = user_data
-            return True
-    else:
-        users_db[username] = user_data
-        return True
+def get_user_by_username(username):
+    try:
+        response = users_table.get_item(Key={'username': username})
+        return deserialize_item(response.get('Item'))
+    except ClientError as e:
+        logger.error(f"Error getting user {username}: {e}")
+        return None
 
-def get_user_from_db(username):
-    """Get user from DynamoDB or fallback storage"""
-    if users_table:
-        try:
-            response = users_table.get_item(Key={'username': username})
-            return response.get('Item')
-        except ClientError as e:
-            logger.error(f"Error getting user from DynamoDB: {e}")
-            return users_db.get(username)
-    else:
-        return users_db.get(username)
-
-def create_service_in_db(service_data):
-    """Create service in DynamoDB or fallback storage"""
-    if services_table:
-        try:
-            services_table.put_item(Item=service_data)
-            logger.info(f"Service {service_data['service_id']} created in DynamoDB")
-            return True
-        except ClientError as e:
-            logger.error(f"Error creating service in DynamoDB: {e}")
-            services_db[service_data['service_id']] = service_data
-            return True
-    else:
-        services_db[service_data['service_id']] = service_data
-        return True
-
-def update_service_in_db(service_id, updates):
-    """Update service in DynamoDB or fallback storage"""
-    if services_table:
-        try:
-            # Build update expression
-            update_expression = "SET "
-            expression_attribute_values = {}
-            
-            for key, value in updates.items():
-                update_expression += f"{key} = :{key}, "
-                expression_attribute_values[f":{key}"] = value
-            
-            update_expression = update_expression.rstrip(', ')
-            
-            services_table.update_item(
-                Key={'service_id': service_id},
-                UpdateExpression=update_expression,
-                ExpressionAttributeValues=expression_attribute_values
-            )
-            logger.info(f"Service {service_id} updated in DynamoDB")
-            return True
-        except ClientError as e:
-            logger.error(f"Error updating service in DynamoDB: {e}")
-            if service_id in services_db:
-                services_db[service_id].update(updates)
-            return True
-    else:
-        if service_id in services_db:
-            services_db[service_id].update(updates)
-        return True
-
-def get_services_from_db(homeowner=None, service_provider=None, status=None):
-    """Get services from DynamoDB or fallback storage"""
-    if services_table:
-        try:
-            response = services_table.scan()
-            services = response.get('Items', [])
-            
-            # Apply filters
-            filtered_services = []
-            for service in services:
-                if homeowner and service.get('homeowner') != homeowner:
-                    continue
-                if service_provider:
-                    if service.get('service_provider') != service_provider and not (
-                        status == 'pending' and service.get('service_provider') is None
-                    ):
-                        continue
-                if status and service.get('status') != status:
-                    continue
-                filtered_services.append(service)
-            
-            return filtered_services
-        except ClientError as e:
-            logger.error(f"Error getting services from DynamoDB: {e}")
-            return list(services_db.values())
-    else:
-        services = list(services_db.values())
-        # Apply same filtering logic for fallback
-        filtered_services = []
-        for service in services:
-            if homeowner and service.get('homeowner') != homeowner:
-                continue
-            if service_provider:
-                if service.get('service_provider') != service_provider and not (
-                    status == 'pending' and service.get('service_provider') is None
-                ):
-                    continue
-            if status and service.get('status') != status:
-                continue
-            filtered_services.append(service)
-        return filtered_services
-
-def get_service_by_id(service_id):
-    """Get single service by ID"""
-    if services_table:
-        try:
-            response = services_table.get_item(Key={'service_id': service_id})
-            return response.get('Item')
-        except ClientError as e:
-            logger.error(f"Error getting service from DynamoDB: {e}")
-            return services_db.get(service_id)
-    else:
-        return services_db.get(service_id)
-
-def send_notification(message, subject="FixItNow Notification"):
-    """Send SNS notification"""
-    if sns_client and SNS_TOPIC_ARN:
-        try:
-            sns_client.publish(
-                TopicArn=SNS_TOPIC_ARN,
-                Message=message,
-                Subject=subject
-            )
-            logger.info("SNS notification sent successfully")
-        except ClientError as e:
-            logger.error(f"Error sending SNS notification: {e}")
-    else:
-        logger.info(f"Notification (would be sent): {subject} - {message}")
-
-# Sample data initialization for development
-def initialize_sample_data():
-    """Initialize sample data for development/testing"""
-    # Create sample users
-    sample_users = [
-        {
-            'username': 'john_homeowner',
-            'password': generate_password_hash('password123'),
-            'user_type': 'homeowner'
-        },
-        {
-            'username': 'jane_provider',
-            'password': generate_password_hash('password123'),
-            'user_type': 'service_provider'
+def create_user(username, password, user_type):
+    try:
+        user_data = {
+            'username': username,
+            'password': generate_password_hash(password),
+            'user_type': user_type,
+            'created_at': datetime.now().isoformat()
         }
-    ]
-    
-    for user in sample_users:
-        if not get_user_from_db(user['username']):
-            create_user_in_db(user['username'], user['password'], user['user_type'])
-    
-    # Create sample services
-    sample_services = [
-        {
-            'service_id': 'service_001',
-            'homeowner': 'john_homeowner',
-            'service_provider': 'jane_provider',
-            'service': 'Kitchen Faucet Leak',
-            'service_type': 'plumbing',
-            'priority': 'high',
-            'description': 'Kitchen faucet is leaking from the base. Water dripping constantly.',
-            'preferred_date': datetime(2025, 6, 3).isoformat(),
-            'start_date': datetime(2025, 6, 2, 14, 30).isoformat(),
-            'cost': None,
-            'status': 'in_progress',
-            'duration': None,
-            'rating': None,
-            'created_at': datetime.now().isoformat(),
-            'updated_at': datetime.now().isoformat()
-        },
-        {
-            'service_id': 'service_002',
-            'homeowner': 'john_homeowner',
-            'service_provider': 'jane_provider',
-            'service': 'AC Unit Maintenance',
-            'service_type': 'hvac',
-            'priority': 'medium',
-            'description': 'Regular maintenance check for AC unit before summer season.',
-            'preferred_date': datetime(2025, 6, 4, 10, 0).isoformat(),
+        
+        users_table.put_item(
+            Item=user_data,
+            ConditionExpression='attribute_not_exists(username)'
+        )
+        return True
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+            return False  # User already exists
+        logger.error(f"Error creating user {username}: {e}")
+        return False
+
+def get_user_services(username, user_type):
+    try:
+        if user_type == 'homeowner':
+            response = services_table.scan(
+                FilterExpression='homeowner = :username',
+                ExpressionAttributeValues={':username': username}
+            )
+        else:  # service_provider
+            response = services_table.scan(
+                FilterExpression='service_provider = :username OR (service_provider = :null_val AND #status = :pending)',
+                ExpressionAttributeValues={
+                    ':username': username,
+                    ':null_val': None,
+                    ':pending': 'pending'
+                },
+                ExpressionAttributeNames={'#status': 'status'}
+            )
+        
+        services = []
+        for item in response.get('Items', []):
+            services.append(deserialize_item(item))
+        
+        return services
+    except ClientError as e:
+        logger.error(f"Error getting services for {username}: {e}")
+        return []
+
+def create_service_request(homeowner, service_type, priority, description, preferred_date=None):
+    try:
+        service_id = f"service_{str(uuid.uuid4())[:8]}"
+        
+        service_request = {
+            'service_id': service_id,
+            'homeowner': homeowner,
+            'service_provider': None,
+            'service': f"{service_type.title()} Service Request",
+            'service_type': service_type,
+            'priority': priority,
+            'description': description,
+            'preferred_date': preferred_date.isoformat() if preferred_date else None,
             'start_date': None,
             'cost': None,
-            'status': 'scheduled',
+            'status': 'pending',
             'duration': None,
             'rating': None,
             'created_at': datetime.now().isoformat(),
             'updated_at': datetime.now().isoformat()
         }
-    ]
-    
-    for service in sample_services:
-        if not get_service_by_id(service['service_id']):
-            create_service_in_db(service)
+        
+        services_table.put_item(Item=service_request)
+        
+        # Send notification
+        send_notification(
+            f"New service request created by {homeowner}: {service_type} - {priority} priority",
+            "New Service Request"
+        )
+        
+        return service_id
+    except ClientError as e:
+        logger.error(f"Error creating service request: {e}")
+        return None
+
+def update_service_status(service_id, status, **kwargs):
+    try:
+        # Get current service
+        response = services_table.get_item(Key={'service_id': service_id})
+        if 'Item' not in response:
+            return False
+        
+        # Prepare update expression
+        update_expression = "SET #status = :status, updated_at = :updated_at"
+        expression_values = {
+            ':status': status,
+            ':updated_at': datetime.now().isoformat()
+        }
+        expression_names = {'#status': 'status'}
+        
+        # Add additional fields
+        for key, value in kwargs.items():
+            if value is not None:
+                placeholder = f":{key}"
+                update_expression += f", {key} = {placeholder}"
+                if isinstance(value, datetime):
+                    expression_values[placeholder] = value.isoformat()
+                else:
+                    expression_values[placeholder] = value
+        
+        services_table.update_item(
+            Key={'service_id': service_id},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_values,
+            ExpressionAttributeNames=expression_names
+        )
+        
+        # Send notification for status changes
+        service = deserialize_item(response['Item'])
+        homeowner = service.get('homeowner', 'Unknown')
+        service_provider = service.get('service_provider', 'Unknown')
+        
+        if status == 'scheduled':
+            send_notification(
+                f"Service request accepted by {service_provider} for homeowner {homeowner}",
+                "Service Request Accepted"
+            )
+        elif status == 'completed':
+            send_notification(
+                f"Service completed by {service_provider} for homeowner {homeowner}",
+                "Service Completed"
+            )
+        
+        return True
+    except ClientError as e:
+        logger.error(f"Error updating service {service_id}: {e}")
+        return False
+
+def get_service_by_id(service_id):
+    try:
+        response = services_table.get_item(Key={'service_id': service_id})
+        return deserialize_item(response.get('Item'))
+    except ClientError as e:
+        logger.error(f"Error getting service {service_id}: {e}")
+        return None
+
+# Sample data initialization for testing
+def initialize_sample_data():
+    try:
+        # Check if sample users already exist
+        if not get_user_by_username('john_homeowner'):
+            create_user('john_homeowner', 'password123', 'homeowner')
+            logger.info("Created sample homeowner user")
+        
+        if not get_user_by_username('jane_provider'):
+            create_user('jane_provider', 'password123', 'service_provider')
+            logger.info("Created sample service provider user")
+        
+        # Create sample services if they don't exist
+        sample_services = [
+            {
+                'service_id': 'service_001',
+                'homeowner': 'john_homeowner',
+                'service_provider': 'jane_provider',
+                'service': 'Kitchen Faucet Leak',
+                'service_type': 'plumbing',
+                'priority': 'high',
+                'description': 'Kitchen faucet is leaking from the base. Water dripping constantly.',
+                'preferred_date': datetime(2025, 6, 3).isoformat(),
+                'start_date': datetime(2025, 6, 2, 14, 30).isoformat(),
+                'cost': None,
+                'status': 'in_progress',
+                'duration': None,
+                'rating': None,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            },
+            {
+                'service_id': 'service_002',
+                'homeowner': 'john_homeowner',
+                'service_provider': 'jane_provider',
+                'service': 'AC Unit Maintenance',
+                'service_type': 'hvac',
+                'priority': 'medium',
+                'description': 'Regular maintenance check for AC unit before summer season.',
+                'preferred_date': datetime(2025, 6, 4, 10, 0).isoformat(),
+                'start_date': None,
+                'cost': None,
+                'status': 'scheduled',
+                'duration': None,
+                'rating': None,
+                'created_at': datetime.now().isoformat(),
+                'updated_at': datetime.now().isoformat()
+            }
+        ]
+        
+        for service in sample_services:
+            try:
+                services_table.put_item(
+                    Item=service,
+                    ConditionExpression='attribute_not_exists(service_id)'
+                )
+            except ClientError as e:
+                if e.response['Error']['Code'] != 'ConditionalCheckFailedException':
+                    logger.error(f"Error creating sample service: {e}")
+        
+        logger.info("Sample data initialized successfully")
+    except Exception as e:
+        logger.error(f"Error initializing sample data: {e}")
 
 # Authentication helper functions
 def is_signed_in():
@@ -262,7 +300,7 @@ def is_signed_in():
 
 def get_current_user():
     if is_signed_in():
-        return get_user_from_db(session['user_id'])
+        return get_user_by_username(session['user_id'])
     return None
 
 def require_signin():
@@ -276,71 +314,21 @@ def require_signin():
         return wrapper
     return decorator
 
-# Service helper functions
-def get_user_services(username, user_type):
-    if user_type == 'homeowner':
-        return get_services_from_db(homeowner=username)
-    elif user_type == 'service_provider':
-        assigned_services = get_services_from_db(service_provider=username)
-        pending_services = get_services_from_db(status='pending')
-        return assigned_services + [s for s in pending_services if s.get('service_provider') is None]
-    return []
-
-def create_service_request(homeowner, service_type, priority, description, preferred_date=None):
-    service_id = f"service_{str(uuid.uuid4())[:8]}"
-    
-    service_request = {
-        'service_id': service_id,
-        'homeowner': homeowner,
-        'service_provider': None,
-        'service': f"{service_type.title()} Service Request",
-        'service_type': service_type,
-        'priority': priority,
-        'description': description,
-        'preferred_date': preferred_date.isoformat() if preferred_date else None,
-        'start_date': None,
-        'cost': None,
-        'status': 'pending',
-        'duration': None,
-        'rating': None,
-        'created_at': datetime.now().isoformat(),
-        'updated_at': datetime.now().isoformat()
-    }
-    
-    create_service_in_db(service_request)
-    
-    # Send notification
-    send_notification(
-        f"New service request created: {service_type} ({priority} priority) by {homeowner}",
-        "New Service Request"
-    )
-    
-    return service_id
-
-def update_service_status(service_id, status, **kwargs):
-    updates = {
-        'status': status,
-        'updated_at': datetime.now().isoformat()
-    }
-    updates.update(kwargs)
-    
-    success = update_service_in_db(service_id, updates)
-    
-    if success:
-        service = get_service_by_id(service_id)
-        if service:
-            send_notification(
-                f"Service {service_id} status updated to: {status}",
-                "Service Status Update"
-            )
-    
-    return success
-
-# Routes (keeping the same structure as original)
+# Main routes
 @app.route('/')
 def home():
     user = get_current_user()
     return render_template('home.html', user=user)
+
+@app.route('/health')
+def health_check():
+    try:
+        # Test DynamoDB connection
+        users_table.describe_table()
+        services_table.describe_table()
+        return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()}), 200
+    except Exception as e:
+        return jsonify({'status': 'unhealthy', 'error': str(e)}), 500
 
 @app.route('/signin', methods=['GET', 'POST'])
 def signin():
@@ -348,7 +336,7 @@ def signin():
         user = get_current_user()
         if user and user['user_type'] == 'homeowner':
             return redirect(url_for('homeowner_dashboard'))
-        else:
+        elif user:
             return redirect(url_for('service_provider_dashboard'))
 
     if request.method == 'POST':
@@ -359,7 +347,7 @@ def signin():
             flash('Please enter both username and password.', 'error')
             return render_template('signin.html')
         
-        user = get_user_from_db(username)
+        user = get_user_by_username(username)
         if not user:
             flash('Invalid username or password.', 'error')
             return render_template('signin.html')
@@ -385,7 +373,7 @@ def signup():
         user = get_current_user()
         if user and user['user_type'] == 'homeowner':
             return redirect(url_for('homeowner_dashboard'))
-        else:
+        elif user:
             return redirect(url_for('service_provider_dashboard'))
     
     if request.method == 'POST':
@@ -394,7 +382,6 @@ def signup():
         confirm_password = request.form.get('confirm_password', '')
         user_type = request.form.get('user_type', '')
         
-        # Validation logic (same as original)
         if not username or not password or not confirm_password or not user_type:
             flash('Please fill in all fields.', 'error')
             return render_template('signup.html')
@@ -415,21 +402,13 @@ def signup():
             flash('Please select a valid user type.', 'error')
             return render_template('signup.html')
         
-        if get_user_from_db(username):
+        if create_user(username, password, user_type):
+            flash('Account created successfully! Please sign in.', 'success')
+            send_notification(f"New user registered: {username} ({user_type})", "New User Registration")
+            return redirect(url_for('signin'))
+        else:
             flash('Username already exists. Please choose a different one.', 'error')
             return render_template('signup.html')
-        
-        # Create user
-        create_user_in_db(username, generate_password_hash(password), user_type)
-        
-        # Send notification
-        send_notification(
-            f"New user registered: {username} ({user_type})",
-            "New User Registration"
-        )
-        
-        flash('Account created successfully! Please sign in.', 'success')
-        return redirect(url_for('signin'))
     
     return render_template('signup.html')
 
@@ -455,7 +434,6 @@ def homeowner_dashboard():
     
     user_services = get_user_services(user['username'], 'homeowner')
     
-    # Calculate stats
     total_requests = len(user_services)
     in_progress = len([s for s in user_services if s['status'] == 'in_progress'])
     completed = len([s for s in user_services if s['status'] == 'completed'])
@@ -487,7 +465,7 @@ def service_provider_dashboard():
         'pending': len([s for s in provider_services if s['status'] == 'pending']),
         'in_progress': len([s for s in provider_services if s['status'] == 'in_progress']),
         'completed': len([s for s in provider_services if s['status'] == 'completed']),
-        'total_earnings': sum(float(s.get('cost', 0) or 0) for s in provider_services if s['status'] == 'completed')
+        'total_earnings': sum(s.get('cost', 0) or 0 for s in provider_services if s['status'] == 'completed')
     }
     
     return render_template('service_provider_dashboard.html', 
@@ -495,7 +473,7 @@ def service_provider_dashboard():
                          services=provider_services,
                          stats=stats)
 
-# API routes (keeping same structure, but using new database functions)
+# API routes - Service management
 @app.route('/api/create-service-request', methods=['POST'])
 def api_create_service_request():
     if not is_signed_in():
@@ -516,10 +494,12 @@ def api_create_service_request():
     if data.get('preferred_date'):
         try:
             date_str = data['preferred_date']
+            
             if ' ' in date_str:
                 preferred_date = datetime.strptime(date_str, '%Y-%m-%d %H:%M')
             else:
                 preferred_date = datetime.strptime(date_str, '%Y-%m-%d')
+                
         except ValueError:
             try:
                 preferred_date = datetime.strptime(data['preferred_date'], '%d-%m-%Y')
@@ -534,11 +514,14 @@ def api_create_service_request():
         preferred_date=preferred_date
     )
     
-    return jsonify({
-        'success': True,
-        'service_id': service_id,
-        'message': 'Service request created successfully'
-    })
+    if service_id:
+        return jsonify({
+            'success': True,
+            'service_id': service_id,
+            'message': 'Service request created successfully'
+        })
+    else:
+        return jsonify({'error': 'Failed to create service request'}), 500
 
 @app.route('/api/update-service-status', methods=['POST'])
 def api_update_service_status():
@@ -552,22 +535,23 @@ def api_update_service_status():
     if not service_id or not new_status:
         return jsonify({'error': 'service_id and status are required'}), 400
     
-    if service_id not in services_db:
+    service = get_service_by_id(service_id)
+    if not service:
         return jsonify({'error': 'Service not found'}), 404
     
-    service = services_db[service_id]
     user = get_current_user()
+    if not user:
+        return jsonify({'error': 'User not found'}), 401
     
+    # Authorization checks
     if new_status == 'scheduled' and service['status'] == 'pending':
         if user['user_type'] != 'service_provider':
             return jsonify({'error': 'Only service providers can accept requests'}), 403
-        
-        services_db[service_id]['service_provider'] = user['username']
-    
     elif user['user_type'] == 'homeowner' and service['homeowner'] != user['username']:
         return jsonify({'error': 'Permission denied'}), 403
-    elif user['user_type'] == 'service_provider' and service['service_provider'] != user['username']:
-        return jsonify({'error': 'Permission denied'}), 403
+    elif user['user_type'] == 'service_provider' and service.get('service_provider') != user['username']:
+        if not (service['status'] == 'pending' and service.get('service_provider') is None):
+            return jsonify({'error': 'Permission denied'}), 403
     
     update_fields = {}
     if data.get('cost'):
@@ -592,10 +576,18 @@ def api_update_service_status():
         except ValueError:
             return jsonify({'error': 'Invalid start_date format. Use YYYY-MM-DD HH:MM'}), 400
     
+    # Set service provider for pending requests
+    if new_status == 'scheduled' and service['status'] == 'pending':
+        update_fields['service_provider'] = user['username']
+    
+    # Calculate duration for completed services
     if new_status == 'completed' and service.get('start_date'):
-        if isinstance(service['start_date'], datetime):
-            duration = datetime.now() - service['start_date']
+        try:
+            start_date = datetime.fromisoformat(service['start_date']) if isinstance(service['start_date'], str) else service['start_date']
+            duration = datetime.now() - start_date
             update_fields['duration'] = duration.total_seconds() / 3600
+        except Exception as e:
+            logger.error(f"Error calculating duration: {e}")
     
     success = update_service_status(service_id, new_status, **update_fields)
     
@@ -610,7 +602,7 @@ def api_assign_service_provider():
         return jsonify({'error': 'Not signed in'}), 401
     
     user = get_current_user()
-    if user['user_type'] != 'service_provider':
+    if not user or user['user_type'] != 'service_provider':
         return jsonify({'error': 'Only service providers can accept requests'}), 403
     
     data = request.get_json()
@@ -619,21 +611,22 @@ def api_assign_service_provider():
     if not service_id:
         return jsonify({'error': 'service_id is required'}), 400
     
-    if service_id not in services_db:
+    service = get_service_by_id(service_id)
+    if not service:
         return jsonify({'error': 'Service not found'}), 404
     
-    service = services_db[service_id]
     if service['status'] != 'pending':
         return jsonify({'error': 'Service is not available for assignment'}), 400
     
-    services_db[service_id]['service_provider'] = user['username']
-    services_db[service_id]['status'] = 'scheduled'
-    services_db[service_id]['updated_at'] = datetime.now()
+    success = update_service_status(service_id, 'scheduled', service_provider=user['username'])
     
-    return jsonify({
-        'success': True,
-        'message': 'Service request accepted and scheduled'
-    })
+    if success:
+        return jsonify({
+            'success': True,
+            'message': 'Service request accepted and scheduled'
+        })
+    else:
+        return jsonify({'error': 'Failed to assign service provider'}), 500
 
 @app.route('/api/complete-service', methods=['POST'])
 def api_complete_service():
@@ -641,7 +634,7 @@ def api_complete_service():
         return jsonify({'error': 'Not signed in'}), 401
     
     user = get_current_user()
-    if user['user_type'] != 'service_provider':
+    if not user or user['user_type'] != 'service_provider':
         return jsonify({'error': 'Only service providers can complete services'}), 403
     
     data = request.get_json()
@@ -652,21 +645,17 @@ def api_complete_service():
     if not service_id:
         return jsonify({'error': 'service_id is required'}), 400
     
-    if service_id not in services_db:
+    service = get_service_by_id(service_id)
+    if not service:
         return jsonify({'error': 'Service not found'}), 404
     
-    service = services_db[service_id]
-    
-    if service['service_provider'] != user['username']:
+    if service.get('service_provider') != user['username']:
         return jsonify({'error': 'Permission denied'}), 403
     
     if service['status'] != 'in_progress':
         return jsonify({'error': 'Service must be in progress to complete'}), 400
     
-    update_fields = {
-        'status': 'completed',
-        'updated_at': datetime.now()
-    }
+    update_fields = {}
     
     if cost:
         try:
@@ -677,22 +666,29 @@ def api_complete_service():
     if notes:
         update_fields['completion_notes'] = notes
     
-    if service.get('start_date') and isinstance(service['start_date'], datetime):
-        duration = datetime.now() - service['start_date']
-        update_fields['duration'] = duration.total_seconds() / 3600
+    # Calculate duration
+    if service.get('start_date'):
+        try:
+            start_date = datetime.fromisoformat(service['start_date']) if isinstance(service['start_date'], str) else service['start_date']
+            duration = datetime.now() - start_date
+            update_fields['duration'] = duration.total_seconds() / 3600
+        except Exception as e:
+            logger.error(f"Error calculating duration: {e}")
     
-    for key, value in update_fields.items():
-        services_db[service_id][key] = value
+    success = update_service_status(service_id, 'completed', **update_fields)
     
-    return jsonify({
-        'success': True,
-        'message': 'Service completed successfully',
-        'service': {
-            'service_id': service_id,
-            'cost': update_fields.get('cost'),
-            'duration': update_fields.get('duration')
-        }
-    })
+    if success:
+        return jsonify({
+            'success': True,
+            'message': 'Service completed successfully',
+            'service': {
+                'service_id': service_id,
+                'cost': update_fields.get('cost'),
+                'duration': update_fields.get('duration')
+            }
+        })
+    else:
+        return jsonify({'error': 'Failed to complete service'}), 500
 
 # API routes - Data retrieval
 @app.route('/api/get-services')
@@ -701,14 +697,16 @@ def api_get_services():
         return jsonify({'error': 'Not signed in'}), 401
     
     user = get_current_user()
+    if not user:
+        return jsonify({'error': 'User not found'}), 401
+    
     services = get_user_services(user['username'], user['user_type'])
     
     services_json = []
     for service in services:
         service_copy = service.copy()
         for key, value in service_copy.items():
-            if isinstance(value, datetime):
-                service_copy[key] = value.isoformat()
+            service_copy[key] = serialize_datetime(value)
         services_json.append(service_copy)
     
     return jsonify({'services': services_json})
@@ -719,19 +717,30 @@ def api_available_requests():
         return jsonify({'error': 'Not signed in'}), 401
     
     user = get_current_user()
-    if user['user_type'] != 'service_provider':
+    if not user or user['user_type'] != 'service_provider':
         return jsonify({'error': 'Only service providers can access this endpoint'}), 403
     
-    available_requests = []
-    for service in services_db.values():
-        if service['status'] == 'pending' and service['service_provider'] is None:
-            service_copy = service.copy()
+    try:
+        response = services_table.scan(
+            FilterExpression='#status = :pending AND service_provider = :null_val',
+            ExpressionAttributeValues={
+                ':pending': 'pending',
+                ':null_val': None
+            },
+            ExpressionAttributeNames={'#status': 'status'}
+        )
+        
+        available_requests = []
+        for item in response.get('Items', []):
+            service_copy = deserialize_item(item)
             for key, value in service_copy.items():
-                if isinstance(value, datetime):
-                    service_copy[key] = value.isoformat()
+                service_copy[key] = serialize_datetime(value)
             available_requests.append(service_copy)
-    
-    return jsonify({'requests': available_requests})
+        
+        return jsonify({'requests': available_requests})
+    except ClientError as e:
+        logger.error(f"Error getting available requests: {e}")
+        return jsonify({'error': 'Failed to get available requests'}), 500
 
 @app.route('/api/current-user')
 def api_current_user():
@@ -743,67 +752,29 @@ def api_current_user():
         return jsonify({
             'username': user['username'],
             'user_type': user['user_type'],
-            'created_at': user['created_at'].isoformat() if isinstance(user['created_at'], datetime) else str(user['created_at'])
+            'created_at': serialize_datetime(user.get('created_at'))
         })
     else:
         return jsonify({'error': 'User not found'}), 404
 
-@app.route('/api/provider-profile', methods=['GET', 'POST'])
-def api_provider_profile():
-    if not is_signed_in():
-        return jsonify({'error': 'Not signed in'}), 401
-    
-    user = get_current_user()
-    if user['user_type'] != 'service_provider':
-        return jsonify({'error': 'Only service providers can access this endpoint'}), 403
-    
-    if request.method == 'GET':
-        profile = {
-            'username': user['username'],
-            'user_type': user['user_type'],
-            'created_at': user['created_at'].isoformat() if isinstance(user['created_at'], datetime) else str(user['created_at']),
-            'availability': True,
-            'service_types': ['plumbing', 'electrical', 'hvac'],
-            'hourly_rate': 75.00
-        }
-        return jsonify(profile)
-    
-    elif request.method == 'POST':
-        data = request.get_json()
-        return jsonify({'success': True, 'message': 'Profile updated successfully'})
-
 @app.route('/api/check-username', methods=['POST'])
 def check_username():
     username = request.json.get('username', '').strip()
-    exists = username in users_db
+    user = get_user_by_username(username)
+    exists = user is not None
     return jsonify({'exists': exists})
 
-@app.route('/api/user-stats')
-def user_stats():
-    if not is_signed_in():
-        return jsonify({'error': 'Not signed in'}), 401
-    
-    total_users = len(users_db)
-    homeowners = sum(1 for user in users_db.values() if user['user_type'] == 'homeowner')
-    service_providers = sum(1 for user in users_db.values() if user['user_type'] == 'service_provider')
-    
-    return jsonify({
-        'total_users': total_users,
-        'homeowners': homeowners,
-        'service_providers': service_providers
-    })
-
-# Template filters (same as original)
+# Template filters
 @app.template_filter('datetime')
 def datetime_filter(value):
-    if isinstance(value, str):
-        try:
-            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            return dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            return value
-    elif isinstance(value, datetime):
+    if isinstance(value, datetime):
         return value.strftime('%Y-%m-%d %H:%M:%S')
+    elif isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value)
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return value
     return value
 
 @app.template_filter('currency')
@@ -836,8 +807,6 @@ def inject_user():
 if __name__ == '__main__':
     # Initialize sample data for development
     initialize_sample_data()
-    
-    
     print("FixItNow Flask App Starting...")
     
     app.run(debug=True, host='0.0.0.0', port=5000)
