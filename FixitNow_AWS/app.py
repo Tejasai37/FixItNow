@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 AWS_REGION = 'us-east-1'
 USERS_TABLE = 'fixitnow_user'
 SERVICES_TABLE = 'fixitnow_service'
-SNS_TOPIC_ARN = os.getenv('SNS_TOPIC_ARN')
+SNS_TOPIC_ARN = "arn:aws:sns:us-east-1:241533142623:fixitnow_topic"
 
 # Initialize AWS clients
 try:
